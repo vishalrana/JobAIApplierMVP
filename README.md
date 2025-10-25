@@ -5,10 +5,13 @@ AI-powered job application automation tool with FastAPI and Gemini AI integratio
 ## Features
 
 - 🚀 FastAPI backend with async support
-- 🤖 Gemini AI integration for job search
+- 🤖 Gemini AI integration for job search and email subject generation
 - 📝 Pydantic models for request/response validation
 - 🔧 Environment-based configuration
 - 📚 Auto-generated API documentation
+- 📄 Document upload and text extraction (PDF, DOC, DOCX, TXT)
+- 📧 AI-powered email subject generation
+- 📨 Automated job application emails with custom content
 
 ## Setup
 
@@ -25,12 +28,12 @@ AI-powered job application automation tool with FastAPI and Gemini AI integratio
 
 3. **Run the server:**
    ```bash
-   python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+   cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
 
 4. **Access the API:**
-   - API Docs: http://localhost:8000/docs
-   - Health Check: http://localhost:8000/health
+   - API Docs: http://127.0.0.1:8000/docs
+   - Health Check: http://127.0.0.1:8000/health
 
 ## API Endpoints
 
@@ -67,6 +70,88 @@ Generate AI-powered job listings based on search criteria.
 ]
 ```
 
+### POST /generate_cover
+Generate AI-powered cover letters based on job requirements and resume content.
+
+**Request Body:**
+```json
+{
+  "job_title": "Product Manager",
+  "company": "Tech Solutions Ltd",
+  "resume_text": "Experienced Product Manager with 5+ years..."
+}
+```
+
+**Response:**
+```json
+{
+  "cover_letter": "Dear Hiring Manager,\n\nI am writing to express..."
+}
+```
+
+### POST /extract_text
+Extract text content from uploaded files (PDF, DOC, DOCX, TXT).
+
+**Request Body:** Form data with file upload
+```
+file: [uploaded_file]
+```
+
+**Response:**
+```json
+{
+  "text": "Extracted text content...",
+  "filename": "resume.pdf",
+  "file_size": 1024,
+  "content_type": "application/pdf"
+}
+```
+
+### POST /generate_subject
+Generate AI-powered email subject lines for job applications.
+
+**Request Body:**
+```json
+{
+  "job_title": "Product Manager",
+  "company": "Tech Solutions Ltd",
+  "cover_letter_content": "Dear Hiring Manager...",
+  "job_description": "Looking for experienced PM..."
+}
+```
+
+**Response:**
+```json
+{
+  "subject": "Experienced SaaS Product Manager - Tech Solutions Ltd",
+  "job_title": "Product Manager",
+  "company": "Tech Solutions Ltd"
+}
+```
+
+### POST /send_email
+Send job application emails with attachments.
+
+**Request Body:**
+```json
+{
+  "to_emails": ["hr@company.com"],
+  "subject": "Product Manager Application",
+  "body": "Cover letter content...",
+  "resume_file": "path/to/resume.pdf"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email sent successfully!",
+  "status": "success",
+  "attachment": "Resume.pdf"
+}
+```
+
 ## Gemini AI Integration
 
 The application uses Google's Gemini 2.5 Flash model to generate realistic job postings based on:
@@ -95,9 +180,14 @@ The system generates 3-5 realistic job postings with:
 JobAIApplierMVP/
 ├── backend/
 │   └── main.py          # FastAPI application with Gemini integration
+├── frontend/
+│   ├── index.html       # Frontend interface with file upload
+│   └── script.js        # JavaScript for file handling and API calls
+├── uploads/             # Directory for uploaded documents
 ├── .env                 # Environment variables (API keys)
 ├── requirements.txt     # Python dependencies
 ├── test_endpoint.py     # Test script for API endpoints
+├── test_complete_workflow.py # Complete workflow testing
 └── README.md           # This file
 ```
 
@@ -120,12 +210,14 @@ The current structure supports easy expansion:
 
 ## Next Steps
 
-- [ ] Add user authentication
-- [ ] Implement job application automation
-- [ ] Add database for job tracking
-- [ ] Create frontend interface
-- [ ] Add email integration for applications
-- [ ] Implement resume tailoring with AI
+- [x] ~~Create frontend interface~~ - ✅ Completed with file upload functionality
+- [x] ~~Add email integration for applications~~ - ✅ Completed with Gmail SMTP
+- [x] ~~Implement resume tailoring with AI~~ - ✅ Completed with text extraction
+- [ ] Add user authentication and user management
+- [ ] Implement job application tracking database
+- [ ] Add resume parsing and keyword optimization
+- [ ] Create job application analytics dashboard
+- [ ] Add multiple resume templates and customization
 
 ## Technologies Used
 

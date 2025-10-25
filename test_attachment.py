@@ -8,7 +8,7 @@ import requests
 def test_attachment_functionality():
     """Test that resume PDF attachment is working properly"""
 
-    base_url = 'http://127.0.0.1:8002'
+    base_url = 'http://127.0.0.1:8000'
 
     print("Testing Resume PDF Attachment Functionality")
     print("=" * 50)

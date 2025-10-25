@@ -20,7 +20,7 @@ def test_search_jobs():
     try:
         # Make request to the endpoint (CORS-enabled server with Gemini AI)
         response = requests.post(
-            'http://127.0.0.1:8002/search_jobs',
+            'http://127.0.0.1:8000/search_jobs',
             json=test_payload,
             timeout=30  # Increased timeout for AI API calls
         )
@@ -45,7 +45,7 @@ def test_search_jobs():
             print(f"❌ Error: {response.text}")
 
     except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to server. Make sure it's running on http://127.0.0.1:8002")
+        print("❌ Cannot connect to server. Make sure it's running on http://127.0.0.1:8000")
     except requests.exceptions.Timeout:
         print("❌ Request timed out")
     except Exception as e:

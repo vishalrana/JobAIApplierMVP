@@ -17,10 +17,11 @@ const loadingElement = document.getElementById('loading');
 const errorElement = document.getElementById('error');
 const jobsTableBody = document.getElementById('jobsTableBody');
 
+
 // Backend API configuration
 const API_CONFIG = {
     // Update this URL to match your backend server (CORS-enabled server)
-    BASE_URL: 'http://127.0.0.1:8002',
+    BASE_URL: 'http://127.0.0.1:8000',
     ENDPOINT: '/search_jobs',
     TIMEOUT: 30000 // 30 seconds for AI API calls
 };
@@ -32,10 +33,15 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 JobAI Frontend initialized');
 
     // Add event listener to the form
-    jobSearchForm.addEventListener('submit', handleFormSubmit);
+    if (jobSearchForm) {
+        jobSearchForm.addEventListener('submit', handleFormSubmit);
+    }
+
 
     // Optional: Add real-time form validation
     addFormValidation();
+
+    console.log('🎯 Frontend setup complete');
 });
 
 /**
@@ -200,6 +206,131 @@ function createJobRow(job, index) {
 }
 
 /**
+ * Send job application using files from uploads/ folder
+ */
+async function sendJobApplication(jobTitle, company, toEmails, button) {
+    let originalButtonText = '📧 Send';
+
+    try {
+        // Disable the button to prevent multiple clicks
+        if (button) {
+            originalButtonText = button.textContent;
+            button.disabled = true;
+            button.textContent = '⏳ Sending...';
+        }
+
+        console.log(`🚀 Starting job application process for ${jobTitle} at ${company}`);
+
+        // Fetch resume text from backend
+        console.log('📄 Fetching resume text...');
+        const resumeResponse = await fetch(`${API_CONFIG.BASE_URL}/get_file_text?filename=resume.pdf`);
+        if (!resumeResponse.ok) {
+            throw new Error(`Resume fetch failed: ${resumeResponse.statusText}`);
+        }
+        const resumeData = await resumeResponse.json();
+        const resumeText = resumeData.text;
+
+        // Fetch cover letter text from backend
+        console.log('📄 Fetching cover letter text...');
+        const coverResponse = await fetch(`${API_CONFIG.BASE_URL}/get_file_text?filename=cover_template.docx`);
+        if (!coverResponse.ok) {
+            throw new Error(`Cover letter fetch failed: ${coverResponse.statusText}`);
+        }
+        const coverData = await coverResponse.json();
+        const coverText = coverData.text;
+
+        // Generate AI email subject based on job and cover letter content
+        console.log('📧 Generating email subject...');
+        const subjectResponse = await fetch(`${API_CONFIG.BASE_URL}/generate_subject`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                job_title: jobTitle,
+                company: company,
+                cover_letter_content: coverText,
+                job_description: `Looking for ${jobTitle} position at ${company}`
+            })
+        });
+
+        if (!subjectResponse.ok) {
+            throw new Error(`Subject generation failed: ${subjectResponse.statusText}`);
+        }
+
+        const subjectData = await subjectResponse.json();
+        const emailSubject = subjectData.subject;
+        console.log(`✅ Email subject generated: ${emailSubject}`);
+
+        // Send email with cover letter content and resume from uploads/
+        console.log('📧 Sending email...');
+
+        const emailResponse = await fetch(`${API_CONFIG.BASE_URL}/send_email`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                to_emails: toEmails.split(',').map(email => email.trim()),
+                subject: emailSubject,
+                body: coverText,
+                resume_file: 'uploads/resume.pdf' // Path to resume in uploads/
+            })
+        });
+
+        const emailData = await emailResponse.json();
+        console.log('📧 Email response received:', emailData);
+
+        // Check response structure and show appropriate feedback
+        if (emailResponse.ok && emailData.success) {
+            // Success - check if real or demo mode
+            const modeText = emailData.demo_mode ? ' (Demo Mode)' : '';
+            const statusText = emailData.demo_mode ? 'prepared' : 'sent';
+
+            alert(`✅ Application ${statusText} successfully${modeText}!\n\n📧 To: ${toEmails}\n📧 Subject: ${emailData.subject}\n📄 Resume: Attached as ${emailData.attachment}\n📄 Cover Letter: Used from uploads/cover_template.docx\n\n${emailData.demo_mode ? 'Note: Configure Gmail credentials in .env to enable real email sending.' : ''}`);
+            console.log('✅ Job application completed:', emailData);
+        } else {
+            // Handle error responses
+            const errorDetail = emailData.detail || emailData.message || 'Unknown error occurred';
+
+            if (errorDetail.includes('authentication failed')) {
+                alert(`❌ Gmail Authentication Failed!\n\n${errorDetail}\n\n📧 Please check your Gmail credentials in .env file.`);
+            } else {
+                alert(`❌ Email sending failed: ${errorDetail}`);
+            }
+
+            throw new Error(`Email sending failed: ${errorDetail}`);
+        }
+
+    } catch (error) {
+        console.error('❌ Send application error:', error);
+
+        let errorMessage = 'Failed to send job application. ';
+        if (error.message.includes('Resume')) {
+            errorMessage += 'Could not fetch resume.';
+        } else if (error.message.includes('Cover')) {
+            errorMessage += 'Could not fetch cover letter.';
+        } else if (error.message.includes('Subject')) {
+            errorMessage += 'Could not generate email subject.';
+        } else if (error.message.includes('Email')) {
+            errorMessage += 'Could not send email.';
+        } else if (error.message.includes('fetch')) {
+            errorMessage += 'Network error. Please check if the backend server is running.';
+        } else {
+            errorMessage += error.message;
+        }
+
+        alert(`❌ ${errorMessage}`);
+    } finally {
+        // Re-enable the button
+        if (button) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+        }
+    }
+}
+
+/**
  * Show "no results" message
  */
 function showNoResults() {
@@ -330,155 +461,15 @@ window.testBackendConnection = async function() {
     }
 };
 
-/**
- * Send job application with AI-generated cover letter
- * @param {string} jobTitle - The job title to apply for
- * @param {string} company - The company name
- * @param {string} toEmails - Comma-separated email addresses
- * @param {HTMLElement} button - The button element that triggered this action
- */
-async function sendJobApplication(jobTitle, company, toEmails, button) {
-    let originalButtonText = '📧 Send';
 
-    try {
-        // Disable the button to prevent multiple clicks
-        if (button) {
-            originalButtonText = button.textContent;
-            button.disabled = true;
-            button.textContent = '⏳ Sending...';
-        }
 
-        console.log(`🚀 Starting job application process for ${jobTitle} at ${company}`);
 
-        // Generate cover letter using AI
-        console.log('📝 Generating cover letter...');
-        const coverResponse = await fetch(`${API_CONFIG.BASE_URL}/generate_cover`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                job_title: jobTitle,
-                company: company,
-                resume_text: "Experienced professional with strong skills in project management, team leadership, and strategic planning. Proven track record in delivering successful projects and driving business growth."
-            })
-        });
 
-        if (!coverResponse.ok) {
-            const errorText = await coverResponse.text();
-            throw new Error(`Cover letter generation failed (${coverResponse.status}): ${errorText}`);
-        }
 
-        const coverData = await coverResponse.json();
-        const coverLetter = coverData.cover_letter;
-        console.log(`✅ Cover letter generated (${coverLetter.length} characters)`);
 
-        // Send email with cover letter and resume attachment
-        console.log('📧 Sending email with resume attachment...');
 
-        // Get resume file path from .env file (consistent with backend)
-        // In a real application, this could be fetched from the backend or config
-        const resumeFilePath = 'G:\\My Drive\\Resume & Documents\\Resume\\Resume\\Product Management\\Resume.pdf';
 
-        const emailResponse = await fetch(`${API_CONFIG.BASE_URL}/send_email`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                to_emails: toEmails.split(',').map(email => email.trim()),
-                subject: `Job Application: ${jobTitle} at ${company}`,
-                body: coverLetter,
-                resume_file: resumeFilePath
-            })
-        });
 
-        const emailData = await emailResponse.json();
-        console.log('📧 Email response received:', emailData);
 
-        // Check response structure and show appropriate feedback
-        if (emailResponse.ok && emailData.success) {
-            // Success - check if real or demo mode
-            const modeText = emailData.demo_mode ? ' (Demo Mode)' : '';
-            const statusText = emailData.demo_mode ? 'prepared' : 'sent';
 
-            alert(`✅ Application ${statusText} successfully${modeText}!\n\n📧 To: ${toEmails}\n📧 Subject: ${emailData.subject}\n📄 Attachment: ${emailData.attachment}\n\n${emailData.demo_mode ? 'Note: Configure Gmail credentials in .env to enable real email sending.' : ''}`);
-            console.log('✅ Job application completed:', emailData);
-        } else {
-            // Handle error responses - show the actual backend error
-            const errorDetail = emailData.detail || emailData.message || 'Unknown error occurred';
 
-            // Provide specific guidance for authentication errors
-            if (errorDetail.includes('authentication failed') || errorDetail.includes('BadCredentials')) {
-                alert(`❌ Gmail Authentication Failed!\n\n${errorDetail}\n\n📧 This means the Gmail credentials in .env need to be updated.\n\n🔧 Required Steps:\n1. Enable 2FA on your Gmail account\n2. Generate App Password: https://myaccount.google.com/apppasswords\n3. Update GMAIL_APP_PASSWORD in .env file`);
-            } else {
-                alert(`❌ Email sending failed: ${errorDetail}`);
-            }
-
-            throw new Error(`Email sending failed: ${errorDetail}`);
-        }
-
-    } catch (error) {
-        console.error('❌ Send application error:', error);
-
-        // Show user-friendly error message
-        let errorMessage = 'Failed to send job application. ';
-        if (error.message.includes('Cover letter')) {
-            errorMessage += 'Could not generate cover letter.';
-        } else if (error.message.includes('Email')) {
-            errorMessage += 'Could not send email.';
-        } else if (error.message.includes('fetch')) {
-            errorMessage += 'Network error. Please check if the backend server is running.';
-        } else {
-            errorMessage += error.message;
-        }
-
-        alert(`❌ ${errorMessage}`);
-    } finally {
-        // Re-enable the button
-        if (button) {
-            button.disabled = false;
-            button.textContent = originalButtonText;
-        }
-    }
-}
-
-/**
- * Generate a sample resume text for cover letter creation
- * In a real application, this would come from user input or file upload
- */
-function getSampleResumeText() {
-    return `
-    Experienced Product Manager with 5+ years of experience in B2B SaaS.
-    Skills: Product Strategy, Agile/Scrum, User Research, Data Analysis, Team Leadership.
-    Achievements: Launched 3 successful products, Increased user engagement by 40%.
-    Education: MBA in Business Analytics.
-    `;
-}
-
-/**
- * Update the sendJobApplication function to use dynamic resume text
- * For now, using a sample - in production this would come from user input
- */
-async function sendJobApplicationWithResume(jobTitle, company, toEmails) {
-    const resumeText = getSampleResumeText();
-
-    const coverResponse = await fetch(`${API_CONFIG.BASE_URL}/generate_cover`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            job_title: jobTitle,
-            company: company,
-            resume_text: resumeText
-        })
-    });
-
-    if (!coverResponse.ok) {
-        throw new Error(`Cover letter generation failed: ${coverResponse.statusText}`);
-    }
-
-    const coverData = await coverResponse.json();
-    return coverData.cover_letter;
-}

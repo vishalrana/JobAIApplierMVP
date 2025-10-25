@@ -35,8 +35,8 @@ def serve_frontend():
         with socketserver.TCPServer(("", FRONTEND_PORT), CustomHTTPRequestHandler) as httpd:
             print(f"🚀 Frontend server running at: http://localhost:{FRONTEND_PORT}")
             print(f"📂 Serving files from: {FRONTEND_DIR}")
-            print(f"🔗 Backend API available at: http://127.0.0.1:8001")
-            print("📋 API Documentation at: http://127.0.0.1:8001/docs")
+            print(f"🔗 Backend API available at: http://127.0.0.1:8000")
+            print("📋 API Documentation at: http://127.0.0.1:8000/docs")
             print("\n💡 Open http://localhost:8080 in your browser to use the app")
             print("🔄 Press Ctrl+C to stop the server")
 

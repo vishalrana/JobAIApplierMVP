@@ -11,7 +11,7 @@ Key Features:
 - Minimal setup ready for AI and job application features
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
@@ -24,6 +24,9 @@ from email import encoders
 import google.generativeai as genai
 from pydantic import BaseModel
 from typing import List, Optional
+import io
+import PyPDF2
+from docx import Document
 
 # Load environment variables from .env file
 load_dotenv()
@@ -66,6 +69,13 @@ class EmailRequest(BaseModel):
     body: str
     resume_file: Optional[str] = None  # Optional for MVP
 
+class SubjectGenerationRequest(BaseModel):
+    """Request model for AI-generated email subjects."""
+    job_title: str
+    company: str
+    cover_letter_content: str
+    job_description: str
+
 # Create FastAPI application instance
 app = FastAPI(
     title="JobAI Applier MVP",
@@ -76,7 +86,7 @@ app = FastAPI(
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:8081", "http://127.0.0.1:8081"],  # Frontend servers
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:8081", "http://127.0.0.1:8081", "*"],  # Frontend servers and file:// access
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
@@ -94,6 +104,112 @@ async def health_check():
     that the FastAPI application is running properly.
     """
     return {"status": "MVP ready"}
+
+@app.get("/get_file_text")
+async def get_file_text(filename: str):
+    """
+    Get text content from a file in the uploads/ folder.
+
+    Args:
+        filename: Name of the file in uploads/ (e.g., "resume.txt", "cover_template.txt")
+
+    Returns:
+        dict: Contains the extracted text content
+    """
+    uploads_dir = "uploads"
+    file_path = os.path.join(uploads_dir, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    try:
+        # Read file content
+        with open(file_path, 'rb') as f:
+            content = f.read()
+
+        # Determine content type based on extension
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == '.pdf':
+            content_type = 'application/pdf'
+        elif ext in ['.doc', '.docx']:
+            if ext == '.doc':
+                content_type = 'application/msword'
+            else:
+                content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        elif ext == '.txt':
+            content_type = 'text/plain'
+        else:
+            content_type = 'text/plain'  # Default
+
+        # Extract text
+        if content_type == 'application/pdf':
+            text = extract_text_from_pdf(content)
+        elif content_type in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
+            text = extract_text_from_docx(content)
+        elif content_type == 'text/plain':
+            text = content.decode('utf-8')
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format")
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="No text content found in the file")
+
+        print(f"✅ Extracted {len(text)} characters from {filename}")
+
+        return {
+            "text": text,
+            "filename": filename,
+            "file_size": len(content),
+            "content_type": content_type
+        }
+
+    except Exception as e:
+        print(f"❌ File text extraction error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract text from file: {str(e)}")
+
+def extract_text_from_pdf(content: bytes) -> str:
+    """
+    Extract text from PDF file content.
+
+    Args:
+        content: PDF file bytes
+
+    Returns:
+        str: Extracted text content
+    """
+    try:
+        pdf_file = io.BytesIO(content)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+
+        return text.strip()
+    except Exception as e:
+        raise Exception(f"PDF text extraction failed: {str(e)}")
+
+def extract_text_from_docx(content: bytes) -> str:
+    """
+    Extract text from DOCX file content.
+
+    Args:
+        content: DOCX file bytes
+
+    Returns:
+        str: Extracted text content
+    """
+    try:
+        docx_file = io.BytesIO(content)
+        doc = Document(docx_file)
+
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+
+        return text.strip()
+    except Exception as e:
+        raise Exception(f"DOCX text extraction failed: {str(e)}")
 
 # Gemini AI job search functionality
 async def generate_jobs_with_gemini(title: str, location: str, ctc: Optional[str] = None) -> List[JobPosting]:
@@ -265,6 +381,144 @@ async def generate_cover_letter(request: CoverLetterRequest):
             detail="Failed to generate cover letter. Please try again."
         )
 
+@app.post("/extract_text")
+async def extract_text_from_file(file: UploadFile = File(...)):
+    """
+    Extract text content from uploaded PDF or DOC/DOCX files.
+
+    This endpoint processes uploaded files and extracts their text content
+    for use in job applications.
+
+    Args:
+        file: Uploaded file (PDF, DOC, or DOCX)
+
+    Returns:
+        dict: Contains the extracted text content
+    """
+    # Validate file type
+    allowed_types = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {file.content_type}. Allowed types: PDF, DOC, DOCX, TXT"
+        )
+
+    try:
+        # Read file content
+        content = await file.read()
+
+        if file.content_type == 'application/pdf':
+            # Extract text from PDF
+            text = extract_text_from_pdf(content)
+        elif file.content_type in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
+            # Extract text from DOC/DOCX
+            text = extract_text_from_docx(content)
+        elif file.content_type == 'text/plain':
+            # Extract text from plain text file
+            text = content.decode('utf-8')
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format")
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="No text content found in the uploaded file")
+
+        print(f"✅ Extracted {len(text)} characters from {file.filename}")
+
+        return {
+            "text": text,
+            "filename": file.filename,
+            "file_size": len(content),
+            "content_type": file.content_type
+        }
+
+    except Exception as e:
+        print(f"❌ Text extraction error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to extract text from file: {str(e)}"
+        )
+
+@app.post("/generate_subject")
+async def generate_email_subject(request: SubjectGenerationRequest):
+    """
+    Generate an AI-powered email subject line for job applications.
+
+    This endpoint creates compelling email subject lines based on the job
+    description and cover letter content using Gemini AI.
+
+    Request Body:
+        - job_title: The job title being applied for
+        - company: The company name
+        - cover_letter_content: The cover letter text content
+        - job_description: Brief description of the job
+
+    Returns:
+        dict: Contains the generated email subject
+    """
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini API key not configured. Please add GEMINI_API_KEY to .env file."
+        )
+
+    try:
+        # Initialize Gemini model
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        # Create subject generation prompt
+        prompt = f"""
+        Generate a professional and compelling email subject line for a job application.
+
+        Job Title: {request.job_title}
+        Company: {request.company}
+        Job Description: {request.job_description}
+        Cover Letter Preview: {request.cover_letter_content[:200]}...
+
+        The subject line should:
+        - Be professional and concise (under 80 characters if possible)
+        - Include the job title and company name
+        - Be compelling and encourage the recruiter to open the email
+        - Sound natural and not spammy
+        - Focus on the candidate's interest and qualifications
+
+        Examples of good subject lines:
+        - "Product Manager Application - Accelify Solutions"
+        - "Experienced PM Interested in [Company] Opportunity"
+        - "Application for [Job Title] Position at [Company]"
+
+        Generate one strong subject line:
+        """
+
+        # Generate subject line
+        response = model.generate_content(prompt)
+        subject = response.text.strip()
+
+        # Clean up the subject (remove quotes if present)
+        subject = subject.strip('"').strip("'").strip()
+
+        # Ensure it's not too long
+        if len(subject) > 100:
+            subject = subject[:97] + "..."
+
+        print(f"✅ Generated email subject: {subject}")
+
+        return {
+            "subject": subject,
+            "job_title": request.job_title,
+            "company": request.company
+        }
+
+    except Exception as e:
+        print(f"❌ Subject generation error: {e}")
+        # Fallback to a basic subject if AI fails
+        fallback_subject = f"Job Application: {request.job_title} at {request.company}"
+        print(f"📧 Using fallback subject: {fallback_subject}")
+        return {
+            "subject": fallback_subject,
+            "job_title": request.job_title,
+            "company": request.company
+        }
+
 @app.post("/send_email")
 async def send_job_application(request: EmailRequest):
     """
@@ -297,18 +551,20 @@ async def send_job_application(request: EmailRequest):
     # Add cover letter as email body
     msg.attach(MIMEText(request.body, 'plain'))
 
-    # Attach resume PDF if file exists (optional for MVP)
+    # Attach resume file if file exists (optional for MVP)
     attachment_status = "No attachment"
     try:
         if request.resume_file and os.path.exists(request.resume_file):
+            # Get the actual filename for attachment
+            actual_filename = os.path.basename(request.resume_file)
             with open(request.resume_file, 'rb') as attachment:
                 part = MIMEBase('application', 'octet-stream')
                 part.set_payload(attachment.read())
                 encoders.encode_base64(part)
-                part.add_header('Content-Disposition', "attachment; filename=Resume.pdf")
+                part.add_header('Content-Disposition', f"attachment; filename={actual_filename}")
                 msg.attach(part)
             print(f"✅ Resume attached: {request.resume_file}")
-            attachment_status = "Resume.pdf"
+            attachment_status = actual_filename
         else:
             print(f"ℹ️ No resume file attached (MVP mode)")
     except PermissionError as e:

@@ -10,7 +10,7 @@ import json
 def test_complete_workflow():
     """Test the complete workflow from job search to email sending"""
 
-    base_url = 'http://127.0.0.1:8002'
+    base_url = 'http://127.0.0.1:8000'
 
     print("🚀 Testing Complete JobAI Applier MVP Workflow")
     print("=" * 50)
